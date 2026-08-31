@@ -53,6 +53,7 @@ const uiPanelCode = read('ui-panel.js');
 const adapterCode = read('adapters/sample.js');
 const platformsCode = read('adapters/platforms.js');
 const knownPlatformsCode = read('adapters/known-platforms.js');
+const henanJxjyCode = read('adapters/henan-jxjy.js');
 
 // 默认系统提示词（统一在此维护，面板「恢复默认」直接取用）
 const DEFAULT_AI_SYSTEM_JS =
@@ -2065,11 +2066,15 @@ __UAA_UI_PANEL__
 
 const finalSandbox = `
 (function(){
+  // 打赏码全局注入（河南专技驱动等模块复用；与 mainCode 的 CFG.donateWx 同源）
+  const UAA_DONATE_WX = ${JSON.stringify(AUTHOR_DONATE_WX)};
+  const UAA_DONATE_ALI = ${JSON.stringify(AUTHOR_DONATE_ALI)};
   ${engineCode}
   ${domCoreCode}
   ${knownPlatformsCode}
   ${adapterCode}
   ${platformsCode}
+  ${henanJxjyCode}
   var engine = window.UAA_ENGINE;
   ${bankCode}
   ${mainCode}

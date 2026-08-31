@@ -46,6 +46,7 @@
     ['英华学堂', /yinghuaxuetang|yinghua/i],
     ['广开网络教学平台', /gzkmu\.edu\.cn|gou\.edu\.cn|guangkai/i],
     ['中国大学MOOC', /icourse163\.org|icourse\.163/i],
+    ['河南专技继续教育（刷课）', /jxjyedu\.org\.cn|hnzjgl\.gov\.cn|jxjy\.henu\.edu\.cn|hnpihn\.newzhihui\.cn|zdkj\.v\.zzu\.edu\.cn|hnzj\.ghlearning\.com|lypt\.edu\.cn|fnhzj\.com|huayuzj\.com/i],
   ];
 
   PLATFORMS.forEach(([name, re]) => {

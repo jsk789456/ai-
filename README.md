@@ -1,6 +1,6 @@
 # 🤖 万能全平台自动答题助手（Universal Auto Answer）
 
-一款面向学习 / 考试类网页的油猴脚本（Tampermonkey / ScriptCat）。自动扫描页面题目，AI 实时出答案，一键自动填答；支持本地题库导入（Excel/CSV/JSON）、视频倍速速学与考试自动衔接。
+一款面向学习/考试类网页的油猴脚本（Tampermonkey / ScriptCat）。自动扫描页面题目，AI实时出答案，一键自动填答；支持本地题库导入（Excel/CSV/JSON）、视频倍速速学与考试自动衔接。
 
 > ⚠️ **免责声明**：本脚本仅供个人学习辅助与自测，请遵守平台规则与考试纪律，严禁违规代考。详见 [docs/免责声明.md](docs/免责声明.md)。
 
@@ -31,32 +31,13 @@
 
 ```bash
 npm install        # 安装构建与测试依赖
-npm run build:all  # 构建混淆版 + 明文版（产物在 dist/）
-```
-
-## 🔧 开发与更新
-
-```bash
-npm run build       # 只构建混淆版（仓库内唯一发布的产物）
-npm run build:plain # 只构建明文版（仅本地调试 / 阅读源码用，不入仓）
-npm test            # 全量回归（14 个套件，jsdom 无浏览器环境）
-npm run preview     # 生成面板真实渲染快照 panel-preview.html
-```
-
-**日常更新流程**：
-
-```bash
-# 改 src/ 下的源码 → 构建 → 自测
-npm run build:all
-npm test
-# 提交发布
-git add -A && git commit -m "feat: ..." && git push
+npm run build:all  # 构建混淆版 
 ```
 
 ## 📁 目录结构
 
 ```
-├── build.js              # 构建脚本（拼装 src/ → 混淆/明文双产物）
+├── build.js              # 构建脚本
 ├── src/                  # 源码
 │   ├── engine.js         #   核心引擎（归一化 / 指纹 / 缓存）
 │   ├── dom-core.js       #   题目提取（四题型 / 组题材料 / 启发式扫描）
@@ -92,4 +73,3 @@ git add -A && git commit -m "feat: ..." && git push
 
 ## 📄 License
 
-[MIT](LICENSE) © 姜老师

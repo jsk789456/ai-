@@ -1,0 +1,92 @@
+# 🤖 万能全平台自动答题助手（Universal Auto Answer）
+
+一款面向学习 / 考试类网页的油猴脚本（Tampermonkey / ScriptCat）。自动扫描页面题目，AI 实时出答案，一键自动填答；支持本地题库导入（Excel/CSV/JSON）、视频倍速速学与考试自动衔接。
+
+> ⚠️ **免责声明**：本脚本仅供个人学习辅助与自测，请遵守平台规则与考试纪律，严禁违规代考。详见 [docs/免责声明.md](docs/免责声明.md)。
+
+## ✨ 功能特性
+
+- **AI 实时作答**：任意 OpenAI 兼容接口（硅基流动 / DeepSeek / 智谱 / Moonshot / 通义 / 火山 / OpenAI 及任意中转站），填自己的 Key 即直连，密钥只存本机；不配 Key 也可用内置云端额度
+- **四题型覆盖**：单选 / 多选 / 判断 / 填空
+- **本地题库**：结果页答案回捞 + AI 答案积累 + **Excel 题库导入**
+  - 支持 `.xlsx / .xlsm / .csv / .tsv / .txt / .json`，**零依赖**（内置 ZIP 解压 + XLSX XML 解析，不引 SheetJS）
+  - 自动识别表格格式：有表头 / 无表头、选项分列 A/B/C/D、选项合并一列、判断题、干扰列，10 余种布局免配置
+  - 只存「正确选项原文」，页面选项顺序打乱也能重新反查，不会答错位
+  - 模糊匹配：精确 → 指纹 → 双向包含 → 相似度（阈值可调 0.7 ~ 0.92）
+- **断网也能答**：AI 不可用时启发式兜底（可关）
+- **视频速学**：1×~16× 常速倍速与最高 1000× 帧步进速学，学完自动衔接考试
+- **30+ 平台识别**：超星学习通、智慧树、智慧职教、雨课堂、中国大学 MOOC、国家继续医学教育网 NCME 等，通用扫描兜底任意网页
+- **统一控制面板**：7 大标签（总览 / 答题 / 视频 / AI接口 / 题库 / 打赏 / 诊断）逐项开关，一键自检，面板可拖拽
+
+## 📦 安装
+
+**方式一：直接装产物（推荐给普通用户）**
+
+1. 安装油猴扩展（Tampermonkey）或 ScriptCat
+2. 打开 `dist/universal-auto-answer.user.js`（混淆版，体积小）或 `dist/universal-auto-answer.plain.user.js`（明文版），点「安装」
+
+**方式二：从源码构建**（推荐给开发者 / 想改代码的人）
+
+```bash
+npm install        # 安装构建与测试依赖
+npm run build:all  # 构建混淆版 + 明文版（产物在 dist/）
+```
+
+## 🔧 开发与更新
+
+```bash
+npm run build       # 只构建混淆版
+npm run build:plain # 只构建明文版
+npm test            # 全量回归（12 个套件，jsdom 无浏览器环境）
+npm run preview     # 生成面板真实渲染快照 panel-preview.html
+```
+
+**日常更新流程**：
+
+```bash
+# 改 src/ 下的源码 → 构建 → 自测
+npm run build:all
+npm test
+# 提交发布
+git add -A && git commit -m "feat: ..." && git push
+```
+
+## 📁 目录结构
+
+```
+├── build.js              # 构建脚本（拼装 src/ → 混淆/明文双产物）
+├── src/                  # 源码
+│   ├── engine.js         #   核心引擎（归一化 / 指纹 / 缓存）
+│   ├── dom-core.js       #   题目提取（四题型 / 组题材料 / 启发式扫描）
+│   ├── bank-import.js    #   题库导入引擎（ZIP/DEFLATE/XLSX/CSV/JSON 零依赖）
+│   ├── ui-panel.js       #   控制面板 UI（7 标签）
+│   ├── adapters/         #   平台适配器
+│   └── sample-bank.json  #   示例题库
+├── test/                 # 12 个 jsdom 测试套件（npm test 全量跑）
+├── dist/                 # 构建产物（混淆版 + 明文版）
+├── supabase/             # 云端 AI 函数源码（可选，自部署后端）
+├── docs/                 # 中文文档（脚本说明 / 发布说明 / 免责声明）
+└── assets/               # 构建资源（打赏码等）
+```
+
+## 🧠 AI 接口配置
+
+打开面板 →「AI接口」标签：
+
+- 预设：硅基流动 / DeepSeek / 智谱 / Moonshot / 通义 / 火山方舟 / OpenAI，选好后填 Key 即用
+- 也支持任意 OpenAI 兼容地址（`Base URL` + `Model` + `Key`）
+- 不填 Key 时走脚本内置云端额度（高峰期可能限流，建议自备 Key）
+
+## 🗂 题库导入
+
+打开面板 →「题库」标签 →「📁 上传导入题库」：
+
+- 点选或拖拽上传 `.xlsx / .csv / .txt / .json`（可多文件）
+- 自动解析预览：格式 / 编码 / 工作表 / 表头行 / 列角色 / 样例
+- 识别不准可**手工指定题干 / 答案 / 选项列**后重新解析，或**换工作表**
+- 确认导入（只合并、不覆盖）；提供 CSV 模板下载
+- 最简格式：一列「题目」+ 一列「答案」即可
+
+## 📄 License
+
+[MIT](LICENSE) © 姜老师

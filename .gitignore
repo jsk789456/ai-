@@ -1,0 +1,27 @@
+# ── WorkBuddy 项目数据 ─────────────────────────────
+.workbuddy/
+
+# ── 本地依赖 ───────────────────────────────────────
+node_modules/
+.testdeps/
+
+# ── 内部文档（不公开，含打赏收款码与内部复盘）──
+overview.md
+panel-preview.html
+donate-copy.md
+对比分析-万能v5.4.2-vs-我们的实现.md
+
+# ── 发布打包（用 GitHub Releases 发布 zip）──
+dist/*.zip
+
+# ── 构建资源 ───────────────────────────────────────
+assets/chaoxing-table.json
+
+# ── 旧版本备份 ─────────────────────────────────────
+dist/增加视频快速学完功能*.js
+
+# ── 系统 ───────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*

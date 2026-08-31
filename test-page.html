@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>万能答题助手 - 本地测试页（裸结构/陌生网站模拟）</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; max-width: 760px; margin: 24px auto; padding: 0 16px; }
+  fieldset { border: 1px solid #ddd; border-radius: 8px; margin: 14px 0; padding: 12px 14px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  label { display: block; padding: 6px 4px; cursor: pointer; }
+  label:hover { background: #f5f7ff; }
+  .blank-item { border: 1px solid #ddd; border-radius: 8px; margin: 14px 0; padding: 12px 14px; }
+  .blank-item input { padding: 6px 8px; width: 220px; }
+  .tag { font-size:12px; color:#2563eb; border:1px solid #2563eb; border-radius:4px; padding:0 6px; margin-left:8px; }
+</style>
+</head>
+<body>
+  <h2>万能答题助手 · 本地功能验证页（裸结构）</h2>
+  <p>本页<b>故意不使用</b> <code>.question</code> 等专用 class，模拟一个陌生的真实答题网站。安装脚本后，无需任何平台适配，打开本页应自动被「通用扫描」识别并答题。先点右上角脚本图标 → 用户菜单，配置 <b>AI 接口地址 / API Key / 模型名</b>（默认已指向硅基流动免费接口）。快捷键：S 暂停 / D 继续；方向键显隐浮窗。</p>
+
+  <!-- 单选（消防职业答题示例） -->
+  <fieldset>
+    <legend>1. 我国消防工作的方针是？<span class="tag">单选</span></legend>
+    <label><input type="radio" name="q_fire_1"> 预防为主，防消结合</label>
+    <label><input type="radio" name="q_fire_1"> 以扑救为主</label>
+    <label><input type="radio" name="q_fire_1"> 以惩罚为主</label>
+  </fieldset>
+
+  <!-- 多选（医疗急救示例） -->
+  <fieldset>
+    <legend>2. 以下哪些属于医疗急救的基本原则（多选）？<span class="tag">多选</span></legend>
+    <label><input type="checkbox" name="q_med_2"> 先救命后治伤</label>
+    <label><input type="checkbox" name="q_med_2"> 快速评估环境安全</label>
+    <label><input type="checkbox" name="q_med_2"> 立即让伤者进食补水</label>
+    <label><input type="checkbox" name="q_med_2"> 及时呼叫急救</label>
+  </fieldset>
+
+  <!-- 判断（公检法示例） -->
+  <fieldset>
+    <legend>3. 公检法机关依法独立行使职权。（判断）<span class="tag">判断</span></legend>
+    <label><input type="radio" name="q_law_3"> 正确</label>
+    <label><input type="radio" name="q_law_3"> 错误</label>
+  </fieldset>
+
+  <!-- 填空 -->
+  <div class="blank-item">
+    <p>4. 灭火的基本方法包括：______、______、______。（填空）<span class="tag">填空</span></p>
+    <input type="text" placeholder="请输入">
+  </div>
+
+  <!-- 干扰项：搜索框 + 订阅勾选（用于验证误判过滤不会当成题目） -->
+  <div style="margin-top:24px;border-top:1px solid #eee;padding-top:16px">
+    <h3>页面其他控件（应被忽略）</h3>
+    <form>
+      <input type="text" name="site_search" placeholder="搜索本站">
+      <label><input type="checkbox" name="subscribe_news"> 订阅每周资讯</label>
+    </form>
+  </div>
+</body>
+</html>

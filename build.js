@@ -149,6 +149,10 @@ const mainCode = `
     bankFuzzyRatio: GM_getValue('uaa_bank_ratio', 0.86),      // 相似度阈值（0.7 宽松 ~ 0.95 严格）
     bankPreferText: GM_getValue('uaa_bank_prefer_text', true),// 用导入的选项原文反查字母（防选项顺序不同答错）
     bankMax: GM_getValue('uaa_bank_max', 20000),              // 导入题库上限
+    // ===== 正确率增强（NCME 等医学平台专项）=====
+    accMultiItem: GM_getValue('uaa_acc_multi_item', true),    // 多选题逐项判断：每选项单独问 AI 再汇总（降漏选）
+    accMedPrompt: GM_getValue('uaa_acc_med_prompt', true),    // 医学自适应提示词 + 否定题干警示
+    accDualModel: GM_getValue('uaa_acc_dual_model', false),   // 双模型会诊：主模型答不上时用复核模型
   };
   // 旧字段兼容：读 CFG.sfKey 的旧逻辑等价于 apiKey
   CFG.sfKey = CFG.apiKey;
@@ -442,6 +446,74 @@ const mainCode = `
     return null;
   }
 
+  // ===== 正确率增强：医学识别 / 否定警示 / 统一 Prompt（NCME 等医学平台专项） =====
+  const MED_HOST_RE = /ncme\.org\.cn|cmechina\.net|cmda|hqpx|yxjy|medcn|med|doctor|clinic|hospital|health/i;
+  const MED_STEM_RE = /(患者|病人|诊断|治疗|症状|体征|查体|入院|病史|主诉|疾病|药物|剂量|手术|并发症|预后|感染|血压|心率|血糖|心电图|CT|MRI|X线|病理|抗生素|肿瘤|骨折|卒中|心梗|叩诊|听诊|白细胞|血红蛋白)/;
+  const NEG_RE = /(不正确|错误的是|除外|不是|不符合|不属于|不对|错误|不能|不宜|不需要|无需|不得|禁止|不应)/;
+
+  // 医学环境判定：医学平台域名 或 题干含医学特征词（accMedPrompt 关闭时恒 false）
+  function isMedicalEnv(stem) {
+    if (CFG.accMedPrompt !== true) return false;
+    const h = String(location.hostname || '').toLowerCase();
+    if (MED_HOST_RE.test(h)) return true;
+    return MED_STEM_RE.test(String(stem || ''));
+  }
+  function hasNegation(stem) {
+    return NEG_RE.test(String(stem || ''));
+  }
+  // 医学专家 system prompt（逐项判断 / 医学题专用）
+  const MED_SYSTEM = '你是资深医学考试辅导专家，精通临床执业医师、主治医师、住院医师规培等医学考试，熟悉诊断学、内、外、妇、儿及病例分析（A2/A3/A4 型题）。请以权威教材为准严谨作答；否定式提问（不正确/除外/不是）务必选出不符合题意者。只输出最终答案，不要解释。';
+  const PLAIN_SYSTEM = '你是答题助手，只输出最终答案，不要解释。';
+
+  // 统一 user prompt：医学专家语境 + 否定题干加粗警示 + 题型约束
+  function buildPrompt(stem, options) {
+    const NL = String.fromCharCode(10);
+    const med = isMedicalEnv(stem);
+    const neg = hasNegation(stem);
+    const optText = (options && options.length)
+      ? options.map((o, i) => DomCore.optionLetter(i) + '. ' + o.text).join(NL)
+      : '';
+    let p = '';
+    if (med) p += '【医学考试题】请按医学专业知识严谨作答（诊断、首选治疗、药物剂量等以权威教材为准）。';
+    // 否定警示随 accMedPrompt 开关一起控制（面板开关文案即含「否定式题干自动加警示」）
+    if (neg && CFG.accMedPrompt === true) {
+      const w = (String(stem).match(NEG_RE) || [''])[0];
+      p += '【⚠ 否定式提问警示】本题含「' + w + '」，请选出【不符合/不属于】题意的选项，切勿选正确项！';
+    }
+    p += NL + '题干：' + stem + (optText ? NL + '选项：' + NL + optText : '');
+    p += NL + '请只输出最终答案（单选题输出字母如 A；多选题输出字母串如 AB；判断题输出“正确”或“错误”；填空题输出答案文本），不要任何解释。';
+    return p;
+  }
+
+  // 多选题逐项判断：每选项单独问 AI「是否符合题意」再汇总成字母串（医学 X 型题漏选率大幅下降）
+  async function judgeMultiByItems(q) {
+    const opts = q.options || [];
+    if (opts.length < 2 || opts.length > 12) return null;
+    const NL = String.fromCharCode(10);
+    const med = isMedicalEnv(q.stem);
+    const neg = hasNegation(q.stem) && CFG.accMedPrompt === true; // 否定提示随医学自适应开关
+    const items = await Promise.all(opts.map(async (o, i) => {
+      const L = DomCore.optionLetter(i);
+      const prompt = (med ? '【医学多选题】' : '【多选题】') + NL +
+        '题干：' + q.stem + NL +
+        '选项 ' + L + '：' + o.text + NL +
+        '请只判断选项 ' + L + ' 是否符合题意（即是否应被选中）' + (neg ? '。注意：题干为否定式提问，请选出不符合题意的选项' : '') + '。' + NL +
+        '只回答：是 或 否。';
+      try {
+        const raw = await callAI(q.stem, [o], { prompt: prompt, system: med ? MED_SYSTEM : PLAIN_SYSTEM });
+        const v = String(raw || '').trim().toLowerCase();
+        if (/^(是|对|正确|符合|√|yes|true|1|应选|应该选|应选择)$/.test(v)) return true;
+        if (/^(否|不|不对|错误|不符合|×|no|false|0|不选|不应选)$/.test(v)) return false;
+        return null;
+      } catch (_) { return null; }
+    }));
+    if (items.every((v) => v == null)) return null;          // 全部无法判断 → 交给一次性问法
+    const picked = [];
+    items.forEach((v, i) => { if (v === true) picked.push(DomCore.optionLetter(i)); });
+    if (!picked.length) return null;                          // 一个都没选 → 结果不可靠，fallback
+    return picked.join('');
+  }
+
   // 自定义 AI 接口（用户自己的 Key + 任意 OpenAI 兼容服务；GM_xmlhttpRequest 不受浏览器跨域限制）
   // 支持硅基流动 / DeepSeek / 智谱 / Moonshot / 通义 / 火山 / OpenAI / 任意中转站
   function chatCompletionsUrl(base) {
@@ -449,16 +521,18 @@ const mainCode = `
     if (!b) return '';
     return /\\/chat\\/completions$/.test(b) ? b : (b + '/chat/completions');
   }
-  function callCustomAPI(stem, options) {
+  function callCustomAPI(stem, options, extra) {
     return new Promise((resolve) => {
       if (typeof GM_xmlhttpRequest !== 'function') { log.push('⚠ 当前管理器不支持 GM_xmlhttpRequest'); return resolve(null); }
       const NL = String.fromCharCode(10); // 用 charCode 表示换行，避免混淆器把换行转义展开成真实换行破坏字面量
       const optText = (options && options.length)
         ? options.map((o, i) => DomCore.optionLetter(i) + '. ' + o.text).join(NL)
         : '';
-      // 末尾「思考」占位：Qwen3 见此即走非思考输出（等价 /think），直接给答案
-      const prompt = '题干：' + stem + (optText ? NL + '选项：' + NL + optText : '') +
-        NL + '请只输出最终答案（选择题输出选项字母如 A 或 AB；判断题输出“正确”或“错误”；填空题输出答案文本），不要任何解释。' + NL + '思考';
+      // 逐项判断等场景可传入自定义 prompt/system，否则走统一 buildPrompt（医学语境 + 否定警示）
+      const sys = (extra && extra.system) || PLAIN_SYSTEM;
+      const prompt = (extra && extra.prompt) || (buildPrompt(stem, options) +
+        // 末尾「思考」占位：Qwen3 见此即走非思考输出（等价 /think），直接给答案
+        NL + '思考');
       // 模型候选：用户填的优先，其次该服务商常用模型，最后公共兜底模型
       const provModels = (typeof providerById === 'function' ? (providerById(CFG.apiProvider).models || []) : []);
       const fallbackModels = ['Qwen/Qwen2.5-72B-Instruct', 'Qwen/Qwen3-8B', 'deepseek-ai/DeepSeek-V3'];
@@ -481,10 +555,10 @@ const mainCode = `
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + CFG.apiKey },
           data: JSON.stringify({
             model: m,
-            messages: [
-              { role: 'system', content: '你是答题助手，只输出最终答案，不要解释。' },
-              { role: 'user', content: prompt }
-            ],
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: prompt }
+          ],
             temperature: 0,
             max_tokens: 256,
             stream: false,
@@ -515,33 +589,34 @@ const mainCode = `
 
   let sfKeyModeLogged = false;
   // 统一入口：优先用用户自己的接口，失败（且开启兜底）时回退云端共享额度
-  function callAI(stem, options) {
+  // extra: { prompt?, system? } — 逐项判断等场景覆盖默认提示词
+  function callAI(stem, options, extra) {
     if (CFG.apiKey) {
       if (!sfKeyModeLogged) {
         const pn = (typeof providerById === 'function' ? providerById(CFG.apiProvider).name : '自定义接口');
         log.push('🔑 已用你自己的 Key 直连：' + pn + '（不经云端、免部署、密钥只存本机）');
         sfKeyModeLogged = true;
       }
-      return callCustomAPI(stem, options).then((r) => {
+      return callCustomAPI(stem, options, extra).then((r) => {
         if (r != null) return r;
         if (CFG.cloudFallback && CFG.sbAnon) {
           log.push('↩ 自定义接口未返回结果，回退云端共享额度');
-          return callCloud(stem, options);
+          return callCloud(stem, options, extra);
         }
         return null;
       });
     }
-    return callCloud(stem, options);
+    return callCloud(stem, options, extra);
   }
 
   // 云端通道（作者托管的共享额度）
-  function callCloud(stem, options) {
+  function callCloud(stem, options, extra) {
     if (!CFG.sbAnon) { log.push('⚠ 未配置云端 Anon Key（可在面板「AI接口 → 云端兜底」填写，或配置你自己的 Key）'); return Promise.resolve(null); }
     const optText = (options && options.length)
       ? options.map((o, i) => DomCore.optionLetter(i) + '. ' + o.text).join('\\n')
       : '';
-    // 末尾 /no_think：关闭 Qwen3 思考模式，直接输出答案，显著降低单题响应时间
-    const prompt = '题干：' + stem + (optText ? '\\n选项：\\n' + optText : '') + '\\n/no_think';
+    const prompt = (extra && extra.prompt) || (buildPrompt(stem, options) + '\\n/no_think');
+    const system = (extra && extra.system) || CFG.aiSystem;
 
     return new Promise((resolve) => {
       if (typeof GM_xmlhttpRequest !== 'function') {
@@ -564,7 +639,7 @@ const mainCode = `
         method: 'POST',
         url: CFG.sbUrl + '/functions/v1/' + CFG.sbFn,
         headers: { 'Content-Type': 'application/json', 'apikey': CFG.sbAnon, 'Authorization': 'Bearer ' + CFG.sbAnon, 'x-func-token': CFG.funcToken },
-        data: JSON.stringify({ stem: stem, options: (options || []).map((o) => o.text), model: CFG.aiModel, system: CFG.aiSystem, prompt: prompt, sfKey: CFG.sfKey || undefined }),
+        data: JSON.stringify({ stem: stem, options: (options || []).map((o) => o.text), model: CFG.aiModel, system: system, prompt: prompt, sfKey: CFG.sfKey || undefined }),
         onload: (resp) => {
           try {
             const j = JSON.parse(resp.responseText);
@@ -668,6 +743,9 @@ __UAA_UI_PANEL__
         importedBankSize: bankImpSize(),
         bankFuzzy: CFG.bankFuzzy,
         bankFuzzyRatio: CFG.bankFuzzyRatio,
+        accMultiItem: CFG.accMultiItem,
+        accMedPrompt: CFG.accMedPrompt,
+        accDualModel: CFG.accDualModel,
       };
       out.push(JSON.stringify(dump, null, 2));
     } catch(e) { out.push('(读取失败：'+e.message+')'); }
@@ -1741,7 +1819,23 @@ __UAA_UI_PANEL__
           if (bv != null && bv !== '未知') aiCache[k] = bv;
           return;
         }
-        const raw = await callAI(q.stem, q.options);
+        let raw = null;
+        // 多选逐项判断（默认开）：每个选项单独问 AI「是否符合题意」再汇总成字母串，
+        // 医学 X 型题「少选/错选均不得分」的漏选率大幅下降
+        if (q.type === 'multiple' && CFG.accMultiItem) {
+          const mv = await judgeMultiByItems(q);
+          if (mv != null) raw = mv;
+        }
+        if (raw == null) {
+          // 双模型会诊（默认关）：自定义接口 + 云端共享同时作答，分歧时取主模型并提示
+          if (CFG.accDualModel && CFG.apiKey && CFG.cloudFallback && CFG.sbAnon) {
+            const [r1, r2] = await Promise.all([callCustomAPI(q.stem, q.options), callCloud(q.stem, q.options)]);
+            raw = (r1 != null) ? r1 : r2;
+            if (r1 != null && r2 != null && r1 !== r2) log.push('⚠ 双模型会诊分歧：主=' + r1 + ' 复核=' + r2 + '（取主模型）');
+          } else {
+            raw = await callAI(q.stem, q.options);
+          }
+        }
         const parsed = (raw == null) ? null : DomCore.parseAIAnswer(raw, q);
         // 只缓存"真答案"：写入 null 会污染模糊匹配的候选表（见 bankKeys）
         if (parsed != null && parsed !== '未知') { aiCache[k] = parsed; aiHit++; }

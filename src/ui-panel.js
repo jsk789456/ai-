@@ -19,7 +19,8 @@
     { id: 'qwen', name: '阿里通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       models: ['qwen-plus', 'qwen-turbo', 'qwen-max'], site: 'https://dashscope.console.aliyun.com', tip: '阿里云官方' },
     { id: 'volc', name: '火山方舟 豆包', base: 'https://ark.cn-beijing.volces.com/api/v3',
-      models: ['doubao-pro-32k', 'doubao-lite-32k'], site: 'https://console.volcengine.com/ark', tip: '字节跳动' },
+      models: ['doubao-seed-1-6-250615', 'doubao-1-5-pro-32k-250115', 'doubao-1-5-lite-32k-250115', 'doubao-seed-1-6-thinking-250715'],
+      site: 'https://console.volcengine.com/ark', tip: '字节跳动豆包；也可填控制台创建的接入点 ID（ep-xxx）' },
     { id: 'baichuan', name: '百川智能', base: 'https://api.baichuan-ai.com/v1',
       models: ['Baichuan4', 'Baichuan3-Turbo'], site: 'https://platform.baichuan-ai.com', tip: '' },
     { id: 'openai', name: 'OpenAI', base: 'https://api.openai.com/v1',
@@ -47,6 +48,9 @@
     autoScrollLog: 'uaa_auto_scroll',
     bankFuzzy: 'uaa_bank_fuzzy',
     bankPreferText: 'uaa_bank_prefer_text',
+    accMultiItem: 'uaa_acc_multi_item',
+    accMedPrompt: 'uaa_acc_med_prompt',
+    accDualModel: 'uaa_acc_dual_model',
   };
 
   const TABS = [
@@ -347,6 +351,10 @@
       uaaSw('heuristicFallback', '启发式兜底', '绝对化措辞排除 + 最长项优先，正确率有限但远胜留空') +
       uaaSw('modalWatch', '弹窗答题监听', '一题一答弹窗（常见于继续教育）自动作答') +
       uaaSw('repaintWatch', '翻页自动补扫', 'SPA 考试翻页后自动继续作答后续题目')) +
+      uaaCard('正确率增强',
+        uaaSw('accMultiItem', '多选题逐项判断', '每个选项单独问 AI「是否符合题意」再汇总，医学 X 型题漏选率大幅下降（多选消耗 N 次请求）') +
+        uaaSw('accMedPrompt', '医学自适应提示词', '识别医学平台（NCME 等）自动切换专家提示词；否定式题干（不正确/除外/不是）自动加警示') +
+        uaaSw('accDualModel', '双模型会诊', '主模型答不上时用第二个模型复核（需在「AI接口」配复核 Key），减少「未知」漏答')) +
       uaaCard('离线兜底',
         uaaSw('harvestEnabled', '结果页答案回捞', '交卷后打开结果/解析页，自动把正确答案收进本地题库') +
         '<div class="uaa-note">回捞后重考同一套题将直接「💾题库」命中，零延迟、不耗 Key。</div>') +
@@ -388,7 +396,10 @@
     return uaaCard('AI 接口（用自己的 Key，密钥只存本机）',
       '<div class="uaa-inp"><span class="uaa-lab">服务商</span>' +
       '<select class="uaa-in" id="uaa-provider">' + opts + '</select>' +
-      '<div class="uaa-note" id="uaa-prov-tip">' + escHtml(prov.tip || '') + '</div></div>' +
+      '<div class="uaa-note" id="uaa-prov-tip">' + escHtml(prov.tip || '') + '</div>' +
+      '<div class="uaa-grid" style="margin-top:5px">' +
+      '<button class="uaa-btn" id="uaa-apply-key" ' + (prov.site ? '' : 'disabled') + '>🔑 去申请 Key（' + escHtml(prov.id === 'volc' ? '豆包' : '官网') + '）</button>' +
+      '<button class="uaa-btn" id="uaa-apply-guide">📖 申请教程</button></div></div>' +
       '<div class="uaa-inp"><span class="uaa-lab">接口地址 Base URL</span>' +
       '<input class="uaa-in" id="uaa-apibase" placeholder="https://api.xxx.com/v1" value="' + escHtml(CFG.apiBase) + '"></div>' +
       '<div class="uaa-inp"><span class="uaa-lab">API Key</span>' +
@@ -817,6 +828,12 @@
       } else if (k === 'donateEnabled') {
         rebuildTabs();
         log.push('打赏页：' + (CFG.donateEnabled ? '显示' : '已隐藏（标签栏已移除）'));
+      } else if (k === 'accMultiItem') {
+        log.push('多选题逐项判断：' + (CFG.accMultiItem ? '开（每个选项单独问 AI，多选漏选率下降）' : '关（多选一次性问 AI）'));
+      } else if (k === 'accMedPrompt') {
+        log.push('医学自适应提示词：' + (CFG.accMedPrompt ? '开（医学平台专家提示 + 否定题干警示）' : '关（统一通用提示词）'));
+      } else if (k === 'accDualModel') {
+        log.push('双模型会诊：' + (CFG.accDualModel ? '开（主模型答不上时用复核模型，需配复核 Key）' : '关'));
       }
     } catch (e) { log.push('开关应用异常：' + e.message); }
   }
@@ -915,8 +932,41 @@
   }
 
   // AI 接口页：服务商切换 / 保存 / 测试连接
+  function applyGuideHtml() {
+    const p = providerById(CFG.apiProvider);
+    const esc = (s) => escHtml(s || '');
+    const L = (url, t) => '<a href="' + esc(url) + '" target="_blank" rel="noreferrer" style="color:#a5b4fc">' + esc(t) + '</a>';
+    if (p.id === 'volc') {
+      return '<b>🫘 火山方舟（豆包）申请步骤：</b><br>' +
+        '1. 打开 ' + L(p.site || 'https://console.volcengine.com/ark', '火山引擎方舟控制台') + '，手机号注册/登录<br>' +
+        '2. 左侧「API Key 管理」→ 创建 API Key，复制（<b>只显示一次</b>）<br>' +
+        '3. 「开通管理」→ 开通「豆包大模型」服务（新用户送免费额度）<br>' +
+        '4. 模型 ID 填 <code>doubao-seed-1-6-250615</code>；或在「在线推理→接入点」创建后填 <code>ep-xxx</code><br>' +
+        '5. 回到本面板：服务商选「火山方舟 豆包」→ 粘贴 Key → 💾 保存 → 🔍 测试连接';
+    }
+    return '<b>🔑 ' + esc(p.name) + ' 申请步骤：</b><br>' +
+      '1. 打开 ' + L(p.site || (p.id === 'custom' ? '' : 'https://platform.openai.com'), p.site ? '官网控制台' : '官方平台') +
+      (p.site ? '' : '（自定义中转站请找你的服务商要地址）') + '<br>' +
+      '2. 注册/登录后进入「API Keys」创建密钥，复制（<b>只显示一次</b>）<br>' +
+      '3. 回到本面板：服务商选「' + esc(p.name) + '」→ 粘贴 Key → 💾 保存 → 🔍 测试连接<br>' +
+      '4. 密钥只存你本机（油猴存储），不上传任何服务器';
+  }
+
   function bindAiView(root) {
     const q = (s) => root.querySelector(s);
+    const openSite = (url) => {
+      if (!url) return;
+      try { if (typeof GM_openInTab === 'function') GM_openInTab(url); else window.open(url); }
+      catch (_) { window.open(url); }
+    };
+    const ak = q('#uaa-apply-key');
+    if (ak) ak.onclick = () => openSite(providerById(CFG.apiProvider).site);
+    const ag = q('#uaa-apply-guide');
+    if (ag) ag.onclick = () => {
+      const box = q('#uaa-testresult');
+      if (box) { box.style.display = 'block'; box.innerHTML = applyGuideHtml(); }
+      log.push('📖 已展示「' + providerById(CFG.apiProvider).name + '」申请教程');
+    };
     const prov = q('#uaa-provider');
     if (prov) prov.onchange = () => {
       const p = providerById(prov.value);
@@ -933,6 +983,9 @@
       const dl = q('#uaa-modellist');
       if (dl) dl.innerHTML = (p.models || []).map((x) => '<option value="' + escHtml(x) + '"></option>').join('');
       const tip = q('#uaa-prov-tip'); if (tip) tip.textContent = p.tip || '';
+      // 视图是惰性构建的，切换服务商后手动刷新「去申请」按钮文案/可用态
+      const akb = q('#uaa-apply-key');
+      if (akb) { akb.textContent = '🔑 去申请 Key（' + (p.id === 'volc' ? '豆包' : '官网') + '）'; akb.disabled = !p.site; }
       log.push('已切换服务商：' + p.name + (p.base ? '（接口地址已自动填充）' : '（请手动填接口地址）'));
       render();
     };

@@ -29,6 +29,7 @@ const FALLBACK_MODELS = [
   'Qwen/Qwen2.5-72B-Instruct',
   'deepseek-ai/DeepSeek-V3',
   'Pro/Qwen2.5-72B-Instruct',
+  'Qwen/Qwen3-32B',
 ];
 
 const corsHeaders = {
@@ -52,6 +53,7 @@ async function tryModel(key: string, model: string, system: string, prompt: stri
   const body: any = {
     model,
     temperature: 0,
+    max_tokens: 256,
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: prompt },

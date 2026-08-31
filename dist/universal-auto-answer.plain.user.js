@@ -2052,6 +2052,10 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
     bankFuzzyRatio: GM_getValue('uaa_bank_ratio', 0.86),      // 相似度阈值（0.7 宽松 ~ 0.95 严格）
     bankPreferText: GM_getValue('uaa_bank_prefer_text', true),// 用导入的选项原文反查字母（防选项顺序不同答错）
     bankMax: GM_getValue('uaa_bank_max', 20000),              // 导入题库上限
+    // ===== 正确率增强（NCME 等医学平台专项）=====
+    accMultiItem: GM_getValue('uaa_acc_multi_item', true),    // 多选题逐项判断：每选项单独问 AI 再汇总（降漏选）
+    accMedPrompt: GM_getValue('uaa_acc_med_prompt', true),    // 医学自适应提示词 + 否定题干警示
+    accDualModel: GM_getValue('uaa_acc_dual_model', false),   // 双模型会诊：主模型答不上时用复核模型
   };
   // 旧字段兼容：读 CFG.sfKey 的旧逻辑等价于 apiKey
   CFG.sfKey = CFG.apiKey;
@@ -2345,6 +2349,74 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
     return null;
   }
 
+  // ===== 正确率增强：医学识别 / 否定警示 / 统一 Prompt（NCME 等医学平台专项） =====
+  const MED_HOST_RE = /ncme.org.cn|cmechina.net|cmda|hqpx|yxjy|medcn|med|doctor|clinic|hospital|health/i;
+  const MED_STEM_RE = /(患者|病人|诊断|治疗|症状|体征|查体|入院|病史|主诉|疾病|药物|剂量|手术|并发症|预后|感染|血压|心率|血糖|心电图|CT|MRI|X线|病理|抗生素|肿瘤|骨折|卒中|心梗|叩诊|听诊|白细胞|血红蛋白)/;
+  const NEG_RE = /(不正确|错误的是|除外|不是|不符合|不属于|不对|错误|不能|不宜|不需要|无需|不得|禁止|不应)/;
+
+  // 医学环境判定：医学平台域名 或 题干含医学特征词（accMedPrompt 关闭时恒 false）
+  function isMedicalEnv(stem) {
+    if (CFG.accMedPrompt !== true) return false;
+    const h = String(location.hostname || '').toLowerCase();
+    if (MED_HOST_RE.test(h)) return true;
+    return MED_STEM_RE.test(String(stem || ''));
+  }
+  function hasNegation(stem) {
+    return NEG_RE.test(String(stem || ''));
+  }
+  // 医学专家 system prompt（逐项判断 / 医学题专用）
+  const MED_SYSTEM = '你是资深医学考试辅导专家，精通临床执业医师、主治医师、住院医师规培等医学考试，熟悉诊断学、内、外、妇、儿及病例分析（A2/A3/A4 型题）。请以权威教材为准严谨作答；否定式提问（不正确/除外/不是）务必选出不符合题意者。只输出最终答案，不要解释。';
+  const PLAIN_SYSTEM = '你是答题助手，只输出最终答案，不要解释。';
+
+  // 统一 user prompt：医学专家语境 + 否定题干加粗警示 + 题型约束
+  function buildPrompt(stem, options) {
+    const NL = String.fromCharCode(10);
+    const med = isMedicalEnv(stem);
+    const neg = hasNegation(stem);
+    const optText = (options && options.length)
+      ? options.map((o, i) => DomCore.optionLetter(i) + '. ' + o.text).join(NL)
+      : '';
+    let p = '';
+    if (med) p += '【医学考试题】请按医学专业知识严谨作答（诊断、首选治疗、药物剂量等以权威教材为准）。';
+    // 否定警示随 accMedPrompt 开关一起控制（面板开关文案即含「否定式题干自动加警示」）
+    if (neg && CFG.accMedPrompt === true) {
+      const w = (String(stem).match(NEG_RE) || [''])[0];
+      p += '【⚠ 否定式提问警示】本题含「' + w + '」，请选出【不符合/不属于】题意的选项，切勿选正确项！';
+    }
+    p += NL + '题干：' + stem + (optText ? NL + '选项：' + NL + optText : '');
+    p += NL + '请只输出最终答案（单选题输出字母如 A；多选题输出字母串如 AB；判断题输出“正确”或“错误”；填空题输出答案文本），不要任何解释。';
+    return p;
+  }
+
+  // 多选题逐项判断：每选项单独问 AI「是否符合题意」再汇总成字母串（医学 X 型题漏选率大幅下降）
+  async function judgeMultiByItems(q) {
+    const opts = q.options || [];
+    if (opts.length < 2 || opts.length > 12) return null;
+    const NL = String.fromCharCode(10);
+    const med = isMedicalEnv(q.stem);
+    const neg = hasNegation(q.stem) && CFG.accMedPrompt === true; // 否定提示随医学自适应开关
+    const items = await Promise.all(opts.map(async (o, i) => {
+      const L = DomCore.optionLetter(i);
+      const prompt = (med ? '【医学多选题】' : '【多选题】') + NL +
+        '题干：' + q.stem + NL +
+        '选项 ' + L + '：' + o.text + NL +
+        '请只判断选项 ' + L + ' 是否符合题意（即是否应被选中）' + (neg ? '。注意：题干为否定式提问，请选出不符合题意的选项' : '') + '。' + NL +
+        '只回答：是 或 否。';
+      try {
+        const raw = await callAI(q.stem, [o], { prompt: prompt, system: med ? MED_SYSTEM : PLAIN_SYSTEM });
+        const v = String(raw || '').trim().toLowerCase();
+        if (/^(是|对|正确|符合|√|yes|true|1|应选|应该选|应选择)$/.test(v)) return true;
+        if (/^(否|不|不对|错误|不符合|×|no|false|0|不选|不应选)$/.test(v)) return false;
+        return null;
+      } catch (_) { return null; }
+    }));
+    if (items.every((v) => v == null)) return null;          // 全部无法判断 → 交给一次性问法
+    const picked = [];
+    items.forEach((v, i) => { if (v === true) picked.push(DomCore.optionLetter(i)); });
+    if (!picked.length) return null;                          // 一个都没选 → 结果不可靠，fallback
+    return picked.join('');
+  }
+
   // 自定义 AI 接口（用户自己的 Key + 任意 OpenAI 兼容服务；GM_xmlhttpRequest 不受浏览器跨域限制）
   // 支持硅基流动 / DeepSeek / 智谱 / Moonshot / 通义 / 火山 / OpenAI / 任意中转站
   function chatCompletionsUrl(base) {
@@ -2352,16 +2424,18 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
     if (!b) return '';
     return /\/chat\/completions$/.test(b) ? b : (b + '/chat/completions');
   }
-  function callCustomAPI(stem, options) {
+  function callCustomAPI(stem, options, extra) {
     return new Promise((resolve) => {
       if (typeof GM_xmlhttpRequest !== 'function') { log.push('⚠ 当前管理器不支持 GM_xmlhttpRequest'); return resolve(null); }
       const NL = String.fromCharCode(10); // 用 charCode 表示换行，避免混淆器把换行转义展开成真实换行破坏字面量
       const optText = (options && options.length)
         ? options.map((o, i) => DomCore.optionLetter(i) + '. ' + o.text).join(NL)
         : '';
-      // 末尾「思考」占位：Qwen3 见此即走非思考输出（等价 /think），直接给答案
-      const prompt = '题干：' + stem + (optText ? NL + '选项：' + NL + optText : '') +
-        NL + '请只输出最终答案（选择题输出选项字母如 A 或 AB；判断题输出“正确”或“错误”；填空题输出答案文本），不要任何解释。' + NL + '思考';
+      // 逐项判断等场景可传入自定义 prompt/system，否则走统一 buildPrompt（医学语境 + 否定警示）
+      const sys = (extra && extra.system) || PLAIN_SYSTEM;
+      const prompt = (extra && extra.prompt) || (buildPrompt(stem, options) +
+        // 末尾「思考」占位：Qwen3 见此即走非思考输出（等价 /think），直接给答案
+        NL + '思考');
       // 模型候选：用户填的优先，其次该服务商常用模型，最后公共兜底模型
       const provModels = (typeof providerById === 'function' ? (providerById(CFG.apiProvider).models || []) : []);
       const fallbackModels = ['Qwen/Qwen2.5-72B-Instruct', 'Qwen/Qwen3-8B', 'deepseek-ai/DeepSeek-V3'];
@@ -2384,10 +2458,10 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + CFG.apiKey },
           data: JSON.stringify({
             model: m,
-            messages: [
-              { role: 'system', content: '你是答题助手，只输出最终答案，不要解释。' },
-              { role: 'user', content: prompt }
-            ],
+          messages: [
+            { role: 'system', content: sys },
+            { role: 'user', content: prompt }
+          ],
             temperature: 0,
             max_tokens: 256,
             stream: false,
@@ -2418,33 +2492,34 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
 
   let sfKeyModeLogged = false;
   // 统一入口：优先用用户自己的接口，失败（且开启兜底）时回退云端共享额度
-  function callAI(stem, options) {
+  // extra: { prompt?, system? } — 逐项判断等场景覆盖默认提示词
+  function callAI(stem, options, extra) {
     if (CFG.apiKey) {
       if (!sfKeyModeLogged) {
         const pn = (typeof providerById === 'function' ? providerById(CFG.apiProvider).name : '自定义接口');
         log.push('🔑 已用你自己的 Key 直连：' + pn + '（不经云端、免部署、密钥只存本机）');
         sfKeyModeLogged = true;
       }
-      return callCustomAPI(stem, options).then((r) => {
+      return callCustomAPI(stem, options, extra).then((r) => {
         if (r != null) return r;
         if (CFG.cloudFallback && CFG.sbAnon) {
           log.push('↩ 自定义接口未返回结果，回退云端共享额度');
-          return callCloud(stem, options);
+          return callCloud(stem, options, extra);
         }
         return null;
       });
     }
-    return callCloud(stem, options);
+    return callCloud(stem, options, extra);
   }
 
   // 云端通道（作者托管的共享额度）
-  function callCloud(stem, options) {
+  function callCloud(stem, options, extra) {
     if (!CFG.sbAnon) { log.push('⚠ 未配置云端 Anon Key（可在面板「AI接口 → 云端兜底」填写，或配置你自己的 Key）'); return Promise.resolve(null); }
     const optText = (options && options.length)
       ? options.map((o, i) => DomCore.optionLetter(i) + '. ' + o.text).join('\n')
       : '';
-    // 末尾 /no_think：关闭 Qwen3 思考模式，直接输出答案，显著降低单题响应时间
-    const prompt = '题干：' + stem + (optText ? '\n选项：\n' + optText : '') + '\n/no_think';
+    const prompt = (extra && extra.prompt) || (buildPrompt(stem, options) + '\n/no_think');
+    const system = (extra && extra.system) || CFG.aiSystem;
 
     return new Promise((resolve) => {
       if (typeof GM_xmlhttpRequest !== 'function') {
@@ -2467,7 +2542,7 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
         method: 'POST',
         url: CFG.sbUrl + '/functions/v1/' + CFG.sbFn,
         headers: { 'Content-Type': 'application/json', 'apikey': CFG.sbAnon, 'Authorization': 'Bearer ' + CFG.sbAnon, 'x-func-token': CFG.funcToken },
-        data: JSON.stringify({ stem: stem, options: (options || []).map((o) => o.text), model: CFG.aiModel, system: CFG.aiSystem, prompt: prompt, sfKey: CFG.sfKey || undefined }),
+        data: JSON.stringify({ stem: stem, options: (options || []).map((o) => o.text), model: CFG.aiModel, system: system, prompt: prompt, sfKey: CFG.sfKey || undefined }),
         onload: (resp) => {
           try {
             const j = JSON.parse(resp.responseText);
@@ -2550,7 +2625,8 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
     { id: 'qwen', name: '阿里通义千问', base: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       models: ['qwen-plus', 'qwen-turbo', 'qwen-max'], site: 'https://dashscope.console.aliyun.com', tip: '阿里云官方' },
     { id: 'volc', name: '火山方舟 豆包', base: 'https://ark.cn-beijing.volces.com/api/v3',
-      models: ['doubao-pro-32k', 'doubao-lite-32k'], site: 'https://console.volcengine.com/ark', tip: '字节跳动' },
+      models: ['doubao-seed-1-6-250615', 'doubao-1-5-pro-32k-250115', 'doubao-1-5-lite-32k-250115', 'doubao-seed-1-6-thinking-250715'],
+      site: 'https://console.volcengine.com/ark', tip: '字节跳动豆包；也可填控制台创建的接入点 ID（ep-xxx）' },
     { id: 'baichuan', name: '百川智能', base: 'https://api.baichuan-ai.com/v1',
       models: ['Baichuan4', 'Baichuan3-Turbo'], site: 'https://platform.baichuan-ai.com', tip: '' },
     { id: 'openai', name: 'OpenAI', base: 'https://api.openai.com/v1',
@@ -2578,6 +2654,9 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
     autoScrollLog: 'uaa_auto_scroll',
     bankFuzzy: 'uaa_bank_fuzzy',
     bankPreferText: 'uaa_bank_prefer_text',
+    accMultiItem: 'uaa_acc_multi_item',
+    accMedPrompt: 'uaa_acc_med_prompt',
+    accDualModel: 'uaa_acc_dual_model',
   };
 
   const TABS = [
@@ -2878,6 +2957,10 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
       uaaSw('heuristicFallback', '启发式兜底', '绝对化措辞排除 + 最长项优先，正确率有限但远胜留空') +
       uaaSw('modalWatch', '弹窗答题监听', '一题一答弹窗（常见于继续教育）自动作答') +
       uaaSw('repaintWatch', '翻页自动补扫', 'SPA 考试翻页后自动继续作答后续题目')) +
+      uaaCard('正确率增强',
+        uaaSw('accMultiItem', '多选题逐项判断', '每个选项单独问 AI「是否符合题意」再汇总，医学 X 型题漏选率大幅下降（多选消耗 N 次请求）') +
+        uaaSw('accMedPrompt', '医学自适应提示词', '识别医学平台（NCME 等）自动切换专家提示词；否定式题干（不正确/除外/不是）自动加警示') +
+        uaaSw('accDualModel', '双模型会诊', '主模型答不上时用第二个模型复核（需在「AI接口」配复核 Key），减少「未知」漏答')) +
       uaaCard('离线兜底',
         uaaSw('harvestEnabled', '结果页答案回捞', '交卷后打开结果/解析页，自动把正确答案收进本地题库') +
         '<div class="uaa-note">回捞后重考同一套题将直接「💾题库」命中，零延迟、不耗 Key。</div>') +
@@ -2919,7 +3002,10 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
     return uaaCard('AI 接口（用自己的 Key，密钥只存本机）',
       '<div class="uaa-inp"><span class="uaa-lab">服务商</span>' +
       '<select class="uaa-in" id="uaa-provider">' + opts + '</select>' +
-      '<div class="uaa-note" id="uaa-prov-tip">' + escHtml(prov.tip || '') + '</div></div>' +
+      '<div class="uaa-note" id="uaa-prov-tip">' + escHtml(prov.tip || '') + '</div>' +
+      '<div class="uaa-grid" style="margin-top:5px">' +
+      '<button class="uaa-btn" id="uaa-apply-key" ' + (prov.site ? '' : 'disabled') + '>🔑 去申请 Key（' + escHtml(prov.id === 'volc' ? '豆包' : '官网') + '）</button>' +
+      '<button class="uaa-btn" id="uaa-apply-guide">📖 申请教程</button></div></div>' +
       '<div class="uaa-inp"><span class="uaa-lab">接口地址 Base URL</span>' +
       '<input class="uaa-in" id="uaa-apibase" placeholder="https://api.xxx.com/v1" value="' + escHtml(CFG.apiBase) + '"></div>' +
       '<div class="uaa-inp"><span class="uaa-lab">API Key</span>' +
@@ -3348,6 +3434,12 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
       } else if (k === 'donateEnabled') {
         rebuildTabs();
         log.push('打赏页：' + (CFG.donateEnabled ? '显示' : '已隐藏（标签栏已移除）'));
+      } else if (k === 'accMultiItem') {
+        log.push('多选题逐项判断：' + (CFG.accMultiItem ? '开（每个选项单独问 AI，多选漏选率下降）' : '关（多选一次性问 AI）'));
+      } else if (k === 'accMedPrompt') {
+        log.push('医学自适应提示词：' + (CFG.accMedPrompt ? '开（医学平台专家提示 + 否定题干警示）' : '关（统一通用提示词）'));
+      } else if (k === 'accDualModel') {
+        log.push('双模型会诊：' + (CFG.accDualModel ? '开（主模型答不上时用复核模型，需配复核 Key）' : '关'));
       }
     } catch (e) { log.push('开关应用异常：' + e.message); }
   }
@@ -3446,8 +3538,41 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
   }
 
   // AI 接口页：服务商切换 / 保存 / 测试连接
+  function applyGuideHtml() {
+    const p = providerById(CFG.apiProvider);
+    const esc = (s) => escHtml(s || '');
+    const L = (url, t) => '<a href="' + esc(url) + '" target="_blank" rel="noreferrer" style="color:#a5b4fc">' + esc(t) + '</a>';
+    if (p.id === 'volc') {
+      return '<b>🫘 火山方舟（豆包）申请步骤：</b><br>' +
+        '1. 打开 ' + L(p.site || 'https://console.volcengine.com/ark', '火山引擎方舟控制台') + '，手机号注册/登录<br>' +
+        '2. 左侧「API Key 管理」→ 创建 API Key，复制（<b>只显示一次</b>）<br>' +
+        '3. 「开通管理」→ 开通「豆包大模型」服务（新用户送免费额度）<br>' +
+        '4. 模型 ID 填 <code>doubao-seed-1-6-250615</code>；或在「在线推理→接入点」创建后填 <code>ep-xxx</code><br>' +
+        '5. 回到本面板：服务商选「火山方舟 豆包」→ 粘贴 Key → 💾 保存 → 🔍 测试连接';
+    }
+    return '<b>🔑 ' + esc(p.name) + ' 申请步骤：</b><br>' +
+      '1. 打开 ' + L(p.site || (p.id === 'custom' ? '' : 'https://platform.openai.com'), p.site ? '官网控制台' : '官方平台') +
+      (p.site ? '' : '（自定义中转站请找你的服务商要地址）') + '<br>' +
+      '2. 注册/登录后进入「API Keys」创建密钥，复制（<b>只显示一次</b>）<br>' +
+      '3. 回到本面板：服务商选「' + esc(p.name) + '」→ 粘贴 Key → 💾 保存 → 🔍 测试连接<br>' +
+      '4. 密钥只存你本机（油猴存储），不上传任何服务器';
+  }
+
   function bindAiView(root) {
     const q = (s) => root.querySelector(s);
+    const openSite = (url) => {
+      if (!url) return;
+      try { if (typeof GM_openInTab === 'function') GM_openInTab(url); else window.open(url); }
+      catch (_) { window.open(url); }
+    };
+    const ak = q('#uaa-apply-key');
+    if (ak) ak.onclick = () => openSite(providerById(CFG.apiProvider).site);
+    const ag = q('#uaa-apply-guide');
+    if (ag) ag.onclick = () => {
+      const box = q('#uaa-testresult');
+      if (box) { box.style.display = 'block'; box.innerHTML = applyGuideHtml(); }
+      log.push('📖 已展示「' + providerById(CFG.apiProvider).name + '」申请教程');
+    };
     const prov = q('#uaa-provider');
     if (prov) prov.onchange = () => {
       const p = providerById(prov.value);
@@ -3464,6 +3589,9 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
       const dl = q('#uaa-modellist');
       if (dl) dl.innerHTML = (p.models || []).map((x) => '<option value="' + escHtml(x) + '"></option>').join('');
       const tip = q('#uaa-prov-tip'); if (tip) tip.textContent = p.tip || '';
+      // 视图是惰性构建的，切换服务商后手动刷新「去申请」按钮文案/可用态
+      const akb = q('#uaa-apply-key');
+      if (akb) { akb.textContent = '🔑 去申请 Key（' + (p.id === 'volc' ? '豆包' : '官网') + '）'; akb.disabled = !p.site; }
       log.push('已切换服务商：' + p.name + (p.base ? '（接口地址已自动填充）' : '（请手动填接口地址）'));
       render();
     };
@@ -4103,6 +4231,9 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
         importedBankSize: bankImpSize(),
         bankFuzzy: CFG.bankFuzzy,
         bankFuzzyRatio: CFG.bankFuzzyRatio,
+        accMultiItem: CFG.accMultiItem,
+        accMedPrompt: CFG.accMedPrompt,
+        accDualModel: CFG.accDualModel,
       };
       out.push(JSON.stringify(dump, null, 2));
     } catch(e) { out.push('(读取失败：'+e.message+')'); }
@@ -5176,7 +5307,23 @@ if (typeof window !== 'undefined') { window.BankImport = BankImport; }
           if (bv != null && bv !== '未知') aiCache[k] = bv;
           return;
         }
-        const raw = await callAI(q.stem, q.options);
+        let raw = null;
+        // 多选逐项判断（默认开）：每个选项单独问 AI「是否符合题意」再汇总成字母串，
+        // 医学 X 型题「少选/错选均不得分」的漏选率大幅下降
+        if (q.type === 'multiple' && CFG.accMultiItem) {
+          const mv = await judgeMultiByItems(q);
+          if (mv != null) raw = mv;
+        }
+        if (raw == null) {
+          // 双模型会诊（默认关）：自定义接口 + 云端共享同时作答，分歧时取主模型并提示
+          if (CFG.accDualModel && CFG.apiKey && CFG.cloudFallback && CFG.sbAnon) {
+            const [r1, r2] = await Promise.all([callCustomAPI(q.stem, q.options), callCloud(q.stem, q.options)]);
+            raw = (r1 != null) ? r1 : r2;
+            if (r1 != null && r2 != null && r1 !== r2) log.push('⚠ 双模型会诊分歧：主=' + r1 + ' 复核=' + r2 + '（取主模型）');
+          } else {
+            raw = await callAI(q.stem, q.options);
+          }
+        }
         const parsed = (raw == null) ? null : DomCore.parseAIAnswer(raw, q);
         // 只缓存"真答案"：写入 null 会污染模糊匹配的候选表（见 bankKeys）
         if (parsed != null && parsed !== '未知') { aiCache[k] = parsed; aiHit++; }

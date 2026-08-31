@@ -24,7 +24,7 @@
 **方式一：直接装产物（推荐给普通用户）**
 
 1. 安装油猴扩展（Tampermonkey）或 ScriptCat
-2. 打开 `dist/universal-auto-answer.user.js`（混淆版，体积小）或 `dist/universal-auto-answer.plain.user.js`（明文版），点「安装」
+2. 打开 `dist/universal-auto-answer.user.js`（混淆版，体积小），点「安装」
 
 **方式二：从源码构建**（推荐给开发者 / 想改代码的人）
 
@@ -36,8 +36,8 @@ npm run build:all  # 构建混淆版 + 明文版（产物在 dist/）
 ## 🔧 开发与更新
 
 ```bash
-npm run build       # 只构建混淆版
-npm run build:plain # 只构建明文版
+npm run build       # 只构建混淆版（仓库内唯一发布的产物）
+npm run build:plain # 只构建明文版（仅本地调试 / 阅读源码用，不入仓）
 npm test            # 全量回归（13 个套件，jsdom 无浏览器环境）
 npm run preview     # 生成面板真实渲染快照 panel-preview.html
 ```
@@ -64,7 +64,7 @@ git add -A && git commit -m "feat: ..." && git push
 │   ├── adapters/         #   平台适配器
 │   └── sample-bank.json  #   示例题库
 ├── test/                 # 13 个 jsdom 测试套件（npm test 全量跑）
-├── dist/                 # 构建产物（混淆版 + 明文版）
+├── dist/                 # 构建产物（混淆版；明文版本地保留不入仓）
 ├── supabase/             # 云端 AI 函数源码（可选，自部署后端）
 ├── docs/                 # 中文文档（脚本说明 / 发布说明 / 免责声明）
 └── assets/               # 构建资源（打赏码等）

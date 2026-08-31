@@ -14,6 +14,9 @@ donate-copy.md
 # ── 发布打包（用 GitHub Releases 发布 zip）──
 dist/*.zip
 
+# ── 明文版（仅本地调试 / 阅读源码用，仓库只发混淆版） ──
+dist/universal-auto-answer.plain.user.js
+
 # ── 构建资源 ───────────────────────────────────────
 assets/chaoxing-table.json
 

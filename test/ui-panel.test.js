@@ -451,17 +451,18 @@ function clickTab(w, id) {
     })());
     check('默认内置作者收款码（渲染成图片而非占位）', !!$(w, '#uaa-qrimg'));
     check('默认收款码是 https 外链（避免混合内容被拦截）', /^https:\/\//.test(($(w, '#uaa-qrimg') || {}).src || ''), (($(w, '#uaa-qrimg') || {}).src || '').slice(0, 40));
-    check('脚本内置了 base64 兜底收款码', /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]{200,}/.test(src));
+    // 1.1.2 起：只保留外链图床，移除 base64 兜底（避免大 base64 被混淆器切碎翻倍）
+    check('默认不再内置 base64 兜底（仅外链 https 收款码）', !/data:image\/[a-z]+;base64,[A-Za-z0-9+/=]{200,}/.test(src), '仍在产物中检出 base64 长串');
+    check('微信收款码为新图床 a1.boltp.com', /a1\.boltp\.com[^"']*6a950ca33c5d1\.png/.test(src), '未找到新微信收款码');
+    check('支付宝收款码为新图床 a1.boltp.com', /a1\.boltp\.com[^"']*6a950ca30913e\.jpg/.test(src), '未找到新支付宝收款码');
 
-    // 外链加载失败 → 自动切内嵌 base64；兜底图也失败 → 显示失败占位
+    // 外链加载失败 → 不再切 base64；1.1.2 起直接显示失败占位（img 元素被替换为 #uaa-qrph）
     {
       const img = $(w, '#uaa-qrimg');
-      const before = img.src;
-      img.onerror(); await sleep(30);
-      const after = ($(w, '#uaa-qrimg') || {}).src || '';
-      check('外链失败后自动切到内嵌兜底图', /^data:image\//.test(after) && after !== before, after.slice(0, 32));
-      $(w, '#uaa-qrimg').onerror(); await sleep(30);
-      check('兜底图也失败时才显示失败提示', !!$(w, '#uaa-qrph') && /加载失败/.test(txt(w, '#uaa-qrph')), txt(w, '#uaa-qrph').slice(0, 20));
+      check('默认渲染为 <img>', !!img);
+      if (img) img.onerror(); await sleep(60);
+      check('外链失败后 img 已被替换为失败占位 #uaa-qrph', !!$(w, '#uaa-qrph'), 'qrimg still=' + !!$(w, '#uaa-qrimg'));
+      check('失败占位含提示文案', /加载失败/.test(txt(w, '#uaa-qrph')), txt(w, '#uaa-qrph').slice(0, 20));
     }
     check('默认展示作者留言', /内测群/.test(view()));
     check('金额档位共 4 档', $(w, '#uaa-view-donate').querySelectorAll('[data-amt]').length === 4);
@@ -500,7 +501,7 @@ function clickTab(w, id) {
     // 切换微信/支付宝
     const aliTab = Array.from($(w, '#uaa-view-donate').querySelectorAll('[data-donatepay]')).find((e) => e.getAttribute('data-donatepay') === 'ali');
     aliTab.click(); await sleep(60);
-    check('切到支付宝后图片换成支付宝码', (/https:\/\/photogzmaz/.test(($(w, '#uaa-qrimg') || {}).src || '')) || /data:image/.test(($(w, '#uaa-qrimg') || {}).src || ''), ($(w, '#uaa-qrimg') || {}).src || '');
+    check('切到支付宝后图片换成支付宝码（a1.boltp.com jpg）', /a1\.boltp\.com\/2026\/08\/31\/6a950ca30913e\.jpg/.test(($(w, '#uaa-qrimg') || {}).src || ''), ($(w, '#uaa-qrimg') || {}).src || '');
     const aliNow = Array.from($(w, '#uaa-view-donate').querySelectorAll('[data-donatepay]')).find((e) => e.getAttribute('data-donatepay') === 'ali');
     const wxNow = Array.from($(w, '#uaa-view-donate').querySelectorAll('[data-donatepay]')).find((e) => e.getAttribute('data-donatepay') === 'wx');
     check('切换后高亮支付宝 chip', /on/.test(aliNow.className || ''));

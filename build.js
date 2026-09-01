@@ -71,13 +71,14 @@ const DEFAULT_AI_SYSTEM_JS =
 // 取码方式：微信 → 我 → 服务 → 收付款 → 二维码收款 → 保存收款码；支付宝 → 我的 → 收钱 → 保存图片。
 // 把图片上传到任意图床（或转成 base64 的 data:image/png;base64,...），把链接填到下面即可。
 // ① 外链：体积小、可随时换图；务必用 https（答题页多为 https，http 图片会被浏览器当混合内容拦截）
-const AUTHOR_DONATE_WX  = 'https://photogzmaz.photo.store.qq.com/psc?/V521xUlK3rMdqm1eMLxg1JnMPP43Vywp/TmEUgtj9EK6.7V8ajmQrEPzqqXOAyD*oEh2nhAhtklOHCaIphlHdBzT9*CTZS13W3usBmamw1zM7V5vurvCZUSwyUj8pffv.DtLcRfE8HQg!/b&bo=2gScBtoEnAYDJwI!&rf=viewer_4&t=5';   // 微信收款码
-const AUTHOR_DONATE_ALI = 'https://photogzmaz.photo.store.qq.com/psc?/V521xUlK3rMdqm1eMLxg1JnMPP43Vywp/TmEUgtj9EK6.7V8ajmQrEPzqqXOAyD*oEh2nhAhtklMrO6C2bXRz0oDhqblEvRJtpL03l0CI5NopJr76NP4UsG5kmn*d8s1NdvT.2kntP04!/b&bo=OARUBjgEVAYBFzA!&rf=viewer_4&t=5';   // 支付宝收款码
+const AUTHOR_DONATE_WX  = 'https://a1.boltp.com/2026/08/31/6a950ca33c5d1.png';   // 微信收款码（姜老师 · 2026-09-01）
+const AUTHOR_DONATE_ALI = 'https://a1.boltp.com/2026/08/31/6a950ca30913e.jpg';   // 支付宝收款码（姜老师 · 2026-09-01）
 // ② 内嵌兜底：assets/donate-wx.txt、donate-ali.txt（内容为 data:image/...;base64,...）。
 //    图床链接（尤其 QQ 相册带临时签名）随时可能失效，外链加载失败时脚本会自动切到内嵌图，用户无感。
 //    换图只需覆盖这两个 txt（把新图转成 data URI 一行写入），再 node build.js 重建。
-const AUTHOR_DONATE_WX_B64  = readAsset('donate-wx.txt');
-const AUTHOR_DONATE_ALI_B64 = readAsset('donate-ali.txt');
+// 自 1.1.2 起只用图床 URL，不再保留 base64 兜底；此处保留 readAsset 调用是为空字符串兜底防止 undefined
+const AUTHOR_DONATE_WX_B64  = readAsset('donate-wx.txt');   // 留空（已不依赖 base64）
+const AUTHOR_DONATE_ALI_B64 = readAsset('donate-ali.txt');  // 留空（已不依赖 base64）
 const AUTHOR_DONATE_USERS  = '12,800+';   // 已陪伴的学习者（社交证明，可改成自己真实数字；留空则不显示）
 const AUTHOR_DONATE_STAR    = '4.9';       // 评分（0~5，小数 0.1~0.5；留空不显示）
 const AUTHOR_DONATE_NOTE = '记得备注你的 QQ，作者拉你进内测群，新平台优先适配～'; // 打赏页留言
@@ -2084,7 +2085,7 @@ const finalSandbox = `
 const header = `// ==UserScript==
 // @name         🤖 AI 智能答题助手 — 网页自动识别·秒答
 // @namespace    https://workbuddy.ai-auto-answer
-// @version      1.1.0
+// @version      1.1.2
 // @description  全平台自动答题 + 视频速学。统一控制面板：7 大标签（总览/答题/视频/AI接口/题库/打赏/诊断）逐项开关，一键自检。支持自定义 AI 接口（硅基流动、DeepSeek、智谱、Moonshot、通义、火山、OpenAI 及任意 OpenAI 兼容中转站），填自己的 Key 即直连，密钥只存本机。题库支持上传 Excel/CSV/TXT/JSON 一键导入，自动识别表头与 10 余种表格格式（选项分列/合并列/判断题/填空题/无表头），识别不准可手动改列；内置本地题库持久化与结果页答案回捞，断网也能答；AI 不可用时启发式兜底不留空。视频支持 1×~16× 常速倍速与最高 1000× 帧步进速学，学完自动衔接考试。已适配超星学习通、智慧树、智慧职教、雨课堂、中国大学MOOC、国家继续医学教育网 NCME 等 30+ 平台，通用扫描兜底任意网页。⚠ 免责声明：仅供个人学习辅助与自测，请遵守平台规则与考试纪律，严禁违规代考。
 // @author       WorkBuddy
 // @license      MIT

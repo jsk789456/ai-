@@ -385,7 +385,41 @@
       '<input class="uaa-in" id="uaa-exam-sel" placeholder="如 #examBtn，留空自动查找" value="' + escHtml(CFG.examEntrySelector) + '"></div>' +
       '<div class="uaa-inp"><span class="uaa-lab">考试直达 URL（可选）</span>' +
       '<input class="uaa-in" id="uaa-exam-url" placeholder="https://... 留空自动查找" value="' + escHtml(CFG.examEntryUrl) + '"></div>' +
-      '<button class="uaa-btn" id="uaa-save-exam">💾 保存考试入口配置</button>');
+      '<button class="uaa-btn" id="uaa-save-exam">💾 保存考试入口配置</button>') +
+      uaaCard('河南专技继续教育 · 公需课自动学习',
+      '<div class="uaa-lab">访问 <b style="color:#7dd3fc">www.jxjyedu.org.cn</b> 或河南继续教育下属站点时启用。<br>' +
+      '脚本自动拉取课程与章节，并发模拟学习时长上报平台。进度与日志均在本面板显示，无外挂按钮。</div>' +
+      '<div id="uaa-hn-status" class="uaa-note">⏳ 等待检测本平台…</div>' +
+      '<div class="uaa-bar" id="uaa-hn-bar" style="height:6px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin:6px 0;">' +
+      '<div id="uaa-hn-bar-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#7dd3fc,#22d3ee);transition:width .3s;"></div></div>' +
+      '<div class="uaa-grid">' +
+      '<button class="uaa-btn pri" id="uaa-hn-start">▶ 开始学习</button>' +
+      '<button class="uaa-btn" id="uaa-hn-stop">⏸ 停止</button>' +
+      '<button class="uaa-btn" id="uaa-hn-reload">🔄 刷新课程</button>' +
+      '</div>');
+  }
+
+  function renderHenanBox(state) {
+    const st = state || { stage: 'idle', percent: 0, total: 0, completed: 0, label: '河南专技' };
+    const box = panel && panel.querySelector('#uaa-hn-status');
+    const fill = panel && panel.querySelector('#uaa-hn-bar-fill');
+    if (fill) fill.style.width = (st.percent || 0) + '%';
+    if (!box) return;
+    let html = '';
+    if (st.stage === 'needlogin') html = '❌ 未登录 — 请先在平台登录';
+    else if (st.stage === 'init') html = '⏳ 正在检测河南继续教育平台…';
+    else if (st.stage === 'loading') html = '⏳ 加载课程中…';
+    else if (st.stage === 'ready') html = '✅ 已就绪 · ' + (st.total || 0) + ' 门课（' + (st.completed || 0) + ' 已完成 · 总进度 ' + (st.percent || 0) + '%）';
+    else if (st.stage === 'running') html = '▶ 学习中 · ' + (st.completed || 0) + '/' + (st.total || 0) + ' 门（' + (st.percent || 0) + '%）';
+    else if (st.stage === 'paused') html = '⏸ 已停止 · ' + (st.completed || 0) + '/' + (st.total || 0);
+    else if (st.stage === 'done') html = '🎉 全部完成 · ' + (st.completed || 0) + '/' + (st.total || 0);
+    else html = '💤 当前页面未启用（请访问河南继续教育系列站点）';
+    box.innerHTML = html;
+  }
+
+  function getHenanState() {
+    try { return (window.UAA_HENAN && typeof window.UAA_HENAN.getState === 'function') ? window.UAA_HENAN.getState() : null; }
+    catch (_) { return null; }
   }
 
   function viewAI() {
@@ -683,6 +717,46 @@
     makeDraggable(panel, panel.querySelector('#uaa-title'));
     bindPanel();
     switchTab(CFG.panelTab);
+    // 预构建 video tab：暴露河南专技学习卡（即便用户当前在别的 tab，方便 adapter 状态轮询可见）
+    try {
+      const vview = panel.querySelector('#uaa-view-video');
+      if (vview && !vview.getAttribute('data-built')) {
+        vview.innerHTML = viewVideo();
+        vview.setAttribute('data-built', '1');
+        bindView('video', vview);
+      }
+    } catch (_) {}
+    // 暴露给 adapter 的回调总线（henan-jxjy 等使用 window.UAA 回报进度）
+    window.UAA = {
+      log: function (msg) {
+        try { log.push(String(msg)); render(); } catch (_) {}
+      },
+      status: function (s) {
+        try { window.__UAA_STATUS__ = s; renderHenanBox(s); } catch (_) {}
+      },
+      complete: function (c) {
+        try {
+          log.push('✅ 完成 · ' + (c && c.label ? c.label : '') + (c && c.summary ? ' — ' + c.summary : ''));
+          if (c && c.gotoDonate && typeof switchTab === 'function') {
+            try { GM_setValue('uaa_panel_tab', 'donate'); } catch (_) {}
+            CFG.panelTab = 'donate';
+            switchTab('donate');
+          }
+          render();
+        } catch (_) {}
+      },
+      modal: function (opt) { return Promise.resolve(true); }
+    };
+    // 消费 adapter 启动前留下的日志缓冲
+    try {
+      var buf = window.__UAA_LOG_BUF__;
+      if (buf && buf.length) {
+        log.push('—— 河南继续教育 · 启动期日志 ——');
+        buf.splice(-100).forEach(function (m) { log.push(m); });
+        try { delete window.__UAA_LOG_BUF__; } catch (_) {}
+      }
+      if (window.__UAA_STATUS__) { try { renderHenanBox(window.__UAA_STATUS__); } catch (_) {} }
+    } catch (_) {}
     return panel;
   }
 
@@ -905,6 +979,35 @@
       };
       const v2 = q('#uaa-act-video2'); if (v2) v2.onclick = () => { log.push('⚡ 开始速学本节视频'); render(); fastLearnVideo(); };
       const e2 = q('#uaa-act-exam2'); if (e2) e2.onclick = () => { log.push('📋 前往本节考试'); render(); gotoCourseExam(); };
+      const hs = q('#uaa-hn-start'); if (hs) hs.onclick = () => {
+        if (window.UAA_HENAN && typeof window.UAA_HENAN.start === 'function') {
+          log.push('🎓 河南专技 · 触发开始学习');
+          render();
+          try { window.UAA_HENAN.start(); } catch (e) { log.push('⚠ 启动失败：' + e.message); }
+        } else { log.push('ℹ 当前页面未启用河南专技驱动（请访问河南省继续教育学会）'); }
+        render();
+      };
+      const hp = q('#uaa-hn-stop'); if (hp) hp.onclick = () => {
+        if (window.UAA_HENAN && typeof window.UAA_HENAN.stop === 'function') {
+          window.UAA_HENAN.stop(); log.push('⏸ 河南专技 · 已发停止信号');
+        } else { log.push('ℹ 当前无运行中的河南专技任务'); }
+        render();
+      };
+      const hr = q('#uaa-hn-reload'); if (hr) hr.onclick = () => {
+        if (window.UAA_HENAN && typeof window.UAA_HENAN.reload === 'function') {
+          window.UAA_HENAN.reload(); log.push('🔄 河南专技 · 已请求刷新课程');
+        } else { log.push('ℹ 当前页面非河南专技平台'); }
+        render();
+      };
+      // 状态轮询：每 1.5s 从 UAA_HENAN.getState() 同步
+      try {
+        if (!panel.querySelector('#uaa-hn-status').getAttribute('data-polling')) {
+          panel.querySelector('#uaa-hn-status').setAttribute('data-polling', '1');
+          setInterval(function () {
+            try { renderHenanBox(getHenanState() || window.__UAA_STATUS__ || { stage: 'idle' }); } catch (_) {}
+          }, 1500);
+        }
+      } catch (_) {}
     }
     if (id === 'ai') {
       bindAiView(root);

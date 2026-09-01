@@ -28,3 +28,6 @@ dist/增加视频快速学完功能*.js
 Thumbs.db
 *.log
 npm-debug.log*
+
+# 测试日志（本地产物）
+.testlog.txt

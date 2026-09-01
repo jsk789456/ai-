@@ -1,4 +1,4 @@
-// 全量测试入口：依次跑 14 个套件，汇总结果。
+// 全量测试入口：依次跑 15 个套件，汇总结果。
 // 用法：npm test（自动回退到 .testdeps 本地依赖）
 const { spawnSync } = require('child_process');
 const fs = require('fs');
@@ -17,7 +17,7 @@ if (!fs.existsSync(path.join(rootNM, 'jsdom'))) {
 const SUITES = [
   'unit', 'dom', 'heuristic', 'mechanism', 'cme-fast', 'cme-video',
   'chaoxing', 'click-answer', 'integration', 'ncme', 'accuracy', 'ui-panel', 'bank-import',
-  'henan-jxjy',
+  'henan-jxjy', 'obf-runtime',
 ];
 
 let failed = 0;
@@ -31,5 +31,5 @@ for (const s of SUITES) {
   if (r.status !== 0) { failed++; console.log(`[${s}] 退出码 ${r.status}`); }
 }
 
-console.log(failed ? `\n❌ ${failed} 个套件失败` : '\n✅ 全部 14 个套件通过');
+console.log(failed ? `\n❌ ${failed} 个套件失败` : `\n✅ 全部 ${SUITES.length} 个套件通过`);
 process.exit(failed ? 1 : 0);

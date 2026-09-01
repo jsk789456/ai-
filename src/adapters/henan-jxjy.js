@@ -65,20 +65,38 @@
   }
 
   // ---------------- UAA 面板回调（无面板时降级 noop；状态写全局缓冲） ----------------
+  // 注意：必须「延迟绑定」——各入口函数是在函数开头取 bus，而真正的日志往往发生在
+  // 若干次 await 之后，那时面板可能才刚挂载。若在 hnBus() 里就把 U.log 固化下来，
+  // 这些日志会永远走降级分支写进 __UAA_LOG_BUF__，面板再也消费不到（启动日志全丢）。
   function hnBus() {
-    var U = window.UAA || (typeof unsafeWindow !== 'undefined' ? unsafeWindow.UAA : null) || {};
+    function uaa() {
+      return window.UAA || (typeof unsafeWindow !== 'undefined' ? unsafeWindow.UAA : null) || {};
+    }
+    function buf(msg) {
+      try { (window.__UAA_LOG_BUF__ = window.__UAA_LOG_BUF__ || []).push(String(msg)); } catch (_) {}
+      try { console.log('[UAA/Henan] ' + msg); } catch (_) {}
+    }
     return {
-      log: typeof U.log === 'function' ? U.log : function (msg) {
-        try { (window.__UAA_LOG_BUF__ = window.__UAA_LOG_BUF__ || []).push(String(msg)); } catch (_) {}
-        try { console.log('[UAA/Henan] ' + msg); } catch (_) {}
+      log: function (msg) {
+        var U = uaa();
+        if (typeof U.log === 'function') { try { U.log(msg); return; } catch (_) {} }
+        buf(msg);
       },
-      status: typeof U.status === 'function' ? U.status : function (s) {
+      status: function (s) {
+        var U = uaa();
+        if (typeof U.status === 'function') { try { U.status(s); return; } catch (_) {} }
         try { window.__UAA_STATUS__ = s; } catch (_) {}
       },
-      complete: typeof U.complete === 'function' ? U.complete : function (c) {
+      complete: function (c) {
+        var U = uaa();
+        if (typeof U.complete === 'function') { try { U.complete(c); return; } catch (_) {} }
         try { window.__UAA_LAST_DONE__ = c; } catch (_) {}
       },
-      modal: typeof U.modal === 'function' ? U.modal : function (opt) { return Promise.resolve(true); }
+      modal: function (opt) {
+        var U = uaa();
+        if (typeof U.modal === 'function') { try { return U.modal(opt); } catch (_) {} }
+        return Promise.resolve(true);
+      }
     };
   }
 

@@ -2085,7 +2085,7 @@ const finalSandbox = `
 const header = `// ==UserScript==
 // @name         🤖 AI 智能答题助手 — 网页自动识别·秒答
 // @namespace    https://workbuddy.ai-auto-answer
-// @version      1.1.2
+// @version      1.1.3
 // @description  全平台自动答题 + 视频速学。统一控制面板：7 大标签（总览/答题/视频/AI接口/题库/打赏/诊断）逐项开关，一键自检。支持自定义 AI 接口（硅基流动、DeepSeek、智谱、Moonshot、通义、火山、OpenAI 及任意 OpenAI 兼容中转站），填自己的 Key 即直连，密钥只存本机。题库支持上传 Excel/CSV/TXT/JSON 一键导入，自动识别表头与 10 余种表格格式（选项分列/合并列/判断题/填空题/无表头），识别不准可手动改列；内置本地题库持久化与结果页答案回捞，断网也能答；AI 不可用时启发式兜底不留空。视频支持 1×~16× 常速倍速与最高 1000× 帧步进速学，学完自动衔接考试。已适配超星学习通、智慧树、智慧职教、雨课堂、中国大学MOOC、国家继续医学教育网 NCME 等 30+ 平台，通用扫描兜底任意网页。⚠ 免责声明：仅供个人学习辅助与自测，请遵守平台规则与考试纪律，严禁违规代考。
 // @author       WorkBuddy
 // @license      MIT

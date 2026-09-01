@@ -147,8 +147,17 @@ function check(name, cond, extra) {
     check('getState.percent 是数字', st && typeof st.percent === 'number', 'percent=' + (st && st.percent));
     const bufferedStatus = w.__UAA_STATUS__;
     check('全局 status 缓冲至少 1 次', !!bufferedStatus, JSON.stringify(bufferedStatus));
-    // 同步检查缓冲日志
-    check('全局日志缓冲含"已加载"消息', (w.__UAA_LOG_BUF__ || []).some((m) => /已加载|📚/.test(m)), 'buf=' + JSON.stringify((w.__UAA_LOG_BUF__ || []).slice(0, 3)));
+    // 1.1.3 回归守卫：hnBus 必须「延迟绑定」面板。
+    // 课程加载日志发生在若干次 await 之后，那时面板已挂载，日志必须直接进面板日志区；
+    // 若在 hnBus() 时就固化 U.log，日志会滞留 __UAA_LOG_BUF__ 永不被消费（v1.1.2 的 bug）。
+    const diagTab = w.document.querySelector('[data-tab="diag"]');
+    if (diagTab) { try { diagTab.click(); } catch (_) {} }
+    await sleep(250);
+    const diagTxt = (w.document.querySelector('#uaa-view-diag') || {}).textContent || '';
+    check('启动日志直达面板日志区（诊断页含「已加载」）', /已加载/.test(diagTxt),
+      'diag=' + JSON.stringify(diagTxt.slice(0, 120)));
+    check('启动日志未滞留降级缓冲', (w.__UAA_LOG_BUF__ || []).length === 0,
+      'buf=' + JSON.stringify((w.__UAA_LOG_BUF__ || []).slice(0, 3)));
     w.close();
   }
 
